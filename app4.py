@@ -2,6 +2,7 @@ import os
 import streamlit as st
 import pandas as pd
 import time
+import pickle # Cần cho việc tải Documents gốc
 from datetime import datetime
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -10,7 +11,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
+from langchain_community.retrievers import BM25Retriever # Cần cho BM25
+from langchain_classic.retrievers import EnsembleRetriever # Cần cho Hybrid Search
+from langchain_classic.retrievers import MultiQueryRetriever 
+import logging
 
+# --- KHAI BÁO FILE DOCUMENTS GỐC ---
+DOCUMENTS_FILE = "documents_goc.pkl"
 
 # --- 1. STREAMLIT PAGE CONFIGURATION ---
 st.set_page_config(
@@ -21,10 +28,11 @@ st.set_page_config(
 )
 
 # --- 2. API KEY CONFIGURATION (HARDCODED) ---
-from dotenv import load_dotenv # Thêm dòng này
+from dotenv import load_dotenv 
 
 load_dotenv()
 openai_api_key = os.environ.get("OPENAI_API_KEY") 
+
 # --- 3. SESSION STATE MANAGEMENT ---
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -315,21 +323,75 @@ with st.sidebar:
         else:
             st.caption("NO DATA DATA FOUND.")
 
-# --- 6. CACHING RESOURCE ---
+# --- 6. CACHING RESOURCE (ĐÃ SỬA LOGIC RAG: BM25 GỐC + FAISS EXPANDED) ---
 @st.cache_resource
 def load_resources():
+    # 1. Load Documents Gốc (cho BM25)
+    documents_goc = []
+    try:
+        with open(DOCUMENTS_FILE, "rb") as f:
+            documents_goc = pickle.load(f)
+        print(f"✅ Loaded {len(documents_goc)} source documents for BM25.")
+    except FileNotFoundError:
+        st.error(f"❌ Documents file not found: {DOCUMENTS_FILE}. BM25 will be skipped.")
+        return None, None
+    except Exception as e:
+        st.error(f"❌ Error loading documents for BM25: {e}")
+        return None, None
+
+    # 2. Load FAISS (Dense Retrieval)
     embedding_model = HuggingFaceEmbeddings(model_name="keepitreal/vietnamese-sbert")
     try:
         vectorstore = FAISS.load_local(folder_path="faiss_course_index", embeddings=embedding_model, allow_dangerous_deserialization=True)
     except Exception as e:
         st.error(f"❌ FAISS ERROR: {e}")
         return None, None
+    
+    # --- SETUP RAG LOGIC ---
+    
+    # A. Setup FAISS (Vector Search) -> SẼ ĐƯỢC EXPAND QUERY BẰNG LLM
+    # Base retriever từ FAISS
+    faiss_base_retriever = vectorstore.as_retriever(search_kwargs={"k": 30})
+    
+    # Định nghĩa LLM dùng để Expand Query (Dùng gpt-4o-mini cho tốc độ cao)
+    llm_expansion = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    
+    # Bọc FAISS bằng MultiQueryRetriever
+    # Logic: Query Gốc -> LLM sinh ra 3 câu hỏi khác -> Tìm Vector -> Gộp kết quả
+    faiss_expanded_retriever = MultiQueryRetriever.from_llm(
+        retriever=faiss_base_retriever,
+        llm=llm_expansion,
+        include_original=True # Luôn bao gồm cả kết quả từ câu hỏi gốc
+    )
+    
+    # Tắt log noise của MultiQueryRetriever nếu không muốn rác console
+    logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
+
+    if documents_goc:
+        # B. Setup BM25 (Keyword Search) -> DÙNG QUERY GỐC
+        bm25_retriever = BM25Retriever.from_documents(documents_goc)
+        bm25_retriever.k = 30
+        
+        # C. Kết hợp (Hybrid): BM25 (Gốc) + FAISS (Đã Expand)
+        base_retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, faiss_expanded_retriever],
+            weights=[0.6, 0.4] # Cân bằng 50/50
+        )
+        print("✅ Hybrid Retriever Created: BM25 (Original) + FAISS (LLM Expanded).")
+    else:
+        # Fallback nếu không có file doc gốc
+        base_retriever = faiss_expanded_retriever
+        print("⚠️ Running in Semantic Search (FAISS Expanded) only mode.")
+
+    # 3. Load Reranker Model (Giữ nguyên)
     rerank_model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     cross_encoder_model = HuggingFaceCrossEncoder(model_name=rerank_model_name)
-    return vectorstore, cross_encoder_model
+    
+    return base_retriever, cross_encoder_model
 
-vectorstore, cross_encoder_model = load_resources()
-if not vectorstore: st.stop()
+# Lấy về base_retriever mới và cross_encoder
+base_retriever_hybrid, cross_encoder_model = load_resources()
+if not base_retriever_hybrid: st.stop() # Kiểm tra lỗi load
 
 # --- 7. MAIN UI (HEADER & SEARCH) ---
 st.markdown("""
@@ -397,7 +459,7 @@ def stream_summary(content, llm_model):
     """
     return llm.stream(prompt)
 
-# --- 9. LOGIC & RESULTS DISPLAY ---
+# --- 9. LOGIC & RESULTS DISPLAY (ĐÃ SỬA THÀNH HYBRID) ---
 # Logic xác định submit: Bấm nút Search HOẶC Bấm nút Chip
 final_submitted = submitted_btn or (history_query_clicked is not None)
 # Xác định query: Ưu tiên nội dung Chip, nếu không thì lấy Input
@@ -413,15 +475,20 @@ if final_submitted:
         if not st.session_state.history or st.session_state.history[-1] != log_entry:
             st.session_state.history.append(log_entry)
             
-        base_retriever = vectorstore.as_retriever(search_kwargs={"k": 50})
+        # --- TẠO PIPELINE RERANK TỪ HYBRID RETRIEVER ĐÃ CACHE ---
+        # base_retriever_hybrid đã là Ensemble/FAISS từ load_resources()
         compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=top_n)
-        rerank_retriever = ContextualCompressionRetriever(base_compressor=compressor, base_retriever=base_retriever)
+        rerank_retriever = ContextualCompressionRetriever(base_compressor=compressor, base_retriever=base_retriever_hybrid)
 
         # Translate Status Messages
         with st.status(f"🔮 SCANNING FOR: '{query}'...", expanded=True) as status:
             st.write("Scanning multidimensional vector space...")
+            
+            # Thay đổi thông báo để phản ánh Hybrid Search
+            st.write("Executing **Hybrid Retrieval (Semantic + Keyword)**...") 
             time.sleep(0.3)
             st.write(f"Optimizing results via Cross-Encoder reranking...")
+            
             try:
                 results = rerank_retriever.invoke(query)
                 status.update(label="✅ TARGETS ACQUIRED! DATA SIGNATURES CONFIRMED.", state="complete", expanded=False)
@@ -487,6 +554,5 @@ if final_submitted:
                         </a>
                     </div>
                 </div> </div> """, unsafe_allow_html=True)
-
 
                 st.markdown("<br><br>", unsafe_allow_html=True)
