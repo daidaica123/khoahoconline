@@ -6,3 +6,4 @@ langchain-openai
 langchain-core
 langchain-classic
 sentence-transformers
+faiss-cpu
