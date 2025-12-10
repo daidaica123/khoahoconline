@@ -7,3 +7,5 @@ langchain-core
 langchain-classic
 sentence-transformers
 faiss-cpu
+scikit-learn
+rank-bm25
