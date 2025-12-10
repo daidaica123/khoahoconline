@@ -11,6 +11,7 @@ from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
 
+
 # --- 1. STREAMLIT PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="NEXUS // Course Hunter AI (Light Halo)",
@@ -486,5 +487,6 @@ if final_submitted:
                         </a>
                     </div>
                 </div> </div> """, unsafe_allow_html=True)
+
 
                 st.markdown("<br><br>", unsafe_allow_html=True)
