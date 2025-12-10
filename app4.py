@@ -133,7 +133,8 @@ def get_theme_css(theme_name):
         ::placeholder {{ color: #A0AEC0 !important; }}
 
         /* --- 5. BUTTONS: VIBRANT GRADIENTS (Keep them popping) --- */
-        div.stButton > button, button[kind="primaryFormSubmit"] {{
+        /* Đây là Style cho nút Submit Form (Nút Search to) */
+        button[kind="primaryFormSubmit"] {{
             background: linear-gradient(90deg, {neon_blue}, {neon_purple});
             color: white !important; font-weight: 900 !important;
             border: none; border-radius: 8px;
@@ -141,20 +142,37 @@ def get_theme_css(theme_name):
             box-shadow: 0 10px 20px -10px rgba(189, 0, 255, 0.5);
             position: relative; overflow: hidden; z-index: 1;
             clip-path: polygon(5% 0%, 100% 0, 100% 70%, 95% 100%, 0 100%, 0% 30%);
+            transition: all 0.3s ease;
         }}
-        div.stButton > button::before, button[kind="primaryFormSubmit"]::before {{
-            content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
-            transition: 0.6s; z-index: -1;
-        }}
-        div.stButton > button:hover::before, button[kind="primaryFormSubmit"]:hover::before {{
-            left: 100%;
-        }}
-        div.stButton > button:hover, button[kind="primaryFormSubmit"]:hover {{
+        button[kind="primaryFormSubmit"]:hover {{
             box-shadow: 0 15px 30px -5px rgba(189, 0, 255, 0.7);
             transform: translateY(-3px); color: white !important;
         }}
         
+        /* --- NEW: HISTORY CHIPS STYLING (Nút Chip nhỏ) --- */
+        /* Override style cho các nút st.button thường để làm Chips */
+        div.stButton > button {{
+            background: rgba(255, 255, 255, 0.6) !important;
+            border: 1px solid {neon_purple} !important;
+            color: {text_dark} !important;
+            border-radius: 20px !important;
+            padding: 5px 20px !important;
+            font-size: 0.85rem !important;
+            font-weight: 700 !important;
+            box-shadow: none !important;
+            height: auto !important;
+            transition: all 0.3s ease !important;
+        }}
+        
+        /* Hiệu ứng Hover Neon Purple cho Chips */
+        div.stButton > button:hover {{
+            background: #fff !important;
+            color: {neon_purple} !important;
+            box-shadow: 0 0 15px {neon_purple}, 0 0 5px {neon_purple} inset !important;
+            border-color: {neon_purple} !important;
+            transform: translateY(-2px) !important;
+        }}
+
         /* --- 6. LIGHT HOLOGRAPHIC RESULT CARDS (The Star Show) --- */
         .result-card-container {{
             /* White frosted glass base */
@@ -188,7 +206,7 @@ def get_theme_css(theme_name):
             transform: translateY(-5px) scale(1.01);
             box-shadow: 0 30px 60px rgba(0, 0, 0, 0.1);
         }}
-        .result-card-container:hover::before {{ opacity: 0.8; filter: blur(12px); }}
+        .result-card-container::hover::before {{ opacity: 0.8; filter: blur(12px); }}
 
         /* Card Content */
         .rank-badge {{
@@ -320,15 +338,41 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(f'<div style="text-align: center; color: #4A5568; margin-bottom: 50px; font-family: monospace; letter-spacing: 2px; font-weight: 700;">OPERATING VIA NEURAL NET: <span style="color: #bd00ff;">[{selected_model.upper()}]</span> STATUS: ONLINE</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align: center; color: #4A5568; margin-bottom: 20px; font-family: monospace; letter-spacing: 2px; font-weight: 700;">OPERATING VIA NEURAL NET: <span style="color: #bd00ff;">[{selected_model.upper()}]</span> STATUS: ONLINE</div>', unsafe_allow_html=True)
+
+# --- 7.1 ADDED: HISTORY CHIPS LOGIC ---
+# Lấy 3 lịch sử tìm kiếm gần nhất (không trùng lặp)
+unique_history = []
+for item in reversed(st.session_state.history):
+    clean_item = item.split("] ", 1)[1] if "] " in item else item
+    if clean_item not in unique_history:
+        unique_history.append(clean_item)
+recent_chips = unique_history[:3]
+
+history_query_clicked = None
+
+# Nếu có lịch sử, hiển thị 3 nút Chips nằm ngang
+if recent_chips:
+    # Dùng columns để căn giữa các nút (Layout 5 cột, nhét nút vào 3 cột giữa)
+    cols = st.columns([1, 1, 1, 1, 1])
+    for i, chip_text in enumerate(recent_chips):
+        # Đảm bảo không index out of range nếu ít hơn 3 items
+        col_idx = i + 1
+        if col_idx < 4:
+            with cols[col_idx]:
+                if st.button(f"⚡ {chip_text}", key=f"chip_{i}", use_container_width=True):
+                    history_query_clicked = chip_text
+
+st.markdown("<div style='height: 10px'></div>", unsafe_allow_html=True)
+# --------------------------------------
 
 with st.form("search_form"):
     col1, col2 = st.columns([5, 2], gap="large")
     with col1:
-        query = st.text_input("", placeholder="ENTER COMMAND OR SEARCH QUERY...", label_visibility="collapsed")
+        query_input = st.text_input("", placeholder="ENTER COMMAND OR SEARCH QUERY...", label_visibility="collapsed")
     with col2:
         st.markdown("<div style='height: 4px'></div>", unsafe_allow_html=True) 
-        submitted = st.form_submit_button("INITIATE SEARCH SEQUENCE 🚀")
+        submitted_btn = st.form_submit_button("INITIATE SEARCH SEQUENCE 🚀")
 
 # --- 8. STREAMING FUNCTION ---
 def stream_summary(content, llm_model):
@@ -353,18 +397,27 @@ def stream_summary(content, llm_model):
     return llm.stream(prompt)
 
 # --- 9. LOGIC & RESULTS DISPLAY ---
-if submitted:
+# Logic xác định submit: Bấm nút Search HOẶC Bấm nút Chip
+final_submitted = submitted_btn or (history_query_clicked is not None)
+# Xác định query: Ưu tiên nội dung Chip, nếu không thì lấy Input
+query = history_query_clicked if history_query_clicked else query_input
+
+if final_submitted:
     if not query:
         st.warning("⚠️ COMMAND REQUIRED! PLEASE ENTER QUERY.")
     else:
         timestamp = datetime.now().strftime("%H:%M")
-        st.session_state.history.append(f"[{timestamp}] {query}")
+        # Chỉ lưu vào lịch sử nếu chưa trùng với cái mới nhất
+        log_entry = f"[{timestamp}] {query}"
+        if not st.session_state.history or st.session_state.history[-1] != log_entry:
+            st.session_state.history.append(log_entry)
+            
         base_retriever = vectorstore.as_retriever(search_kwargs={"k": 50})
         compressor = CrossEncoderReranker(model=cross_encoder_model, top_n=top_n)
         rerank_retriever = ContextualCompressionRetriever(base_compressor=compressor, base_retriever=base_retriever)
 
         # Translate Status Messages
-        with st.status("🔮 INITIATING NEURAL SCAN...", expanded=True) as status:
+        with st.status(f"🔮 SCANNING FOR: '{query}'...", expanded=True) as status:
             st.write("Scanning multidimensional vector space...")
             time.sleep(0.3)
             st.write(f"Optimizing results via Cross-Encoder reranking...")
