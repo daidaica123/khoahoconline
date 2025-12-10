@@ -1,0 +1,7 @@
+streamlit
+pandas
+langchain-huggingface
+langchain-community
+langchain-openai
+langchain-core
+langchain-classic
