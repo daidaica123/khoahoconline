@@ -16,7 +16,6 @@ from langchain_classic.retrievers import EnsembleRetriever # Cần cho Hybrid Se
 from langchain_classic.retrievers import MultiQueryRetriever 
 import logging
 
-
 # --- KHAI BÁO FILE DOCUMENTS GỐC ---
 DOCUMENTS_FILE = "documents_goc.pkl"
 
@@ -286,7 +285,7 @@ def get_theme_css(theme_name):
 # --- 5. SIDEBAR: CONTROL CONSOLE (ENGLISH) ---
 with st.sidebar:
     st.markdown("<div style='text-align:center; padding-bottom: 15px'> <span style='font-size: 4em;'>💠</span> </div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-title' style='text-align: center; margin-bottom: 25px; font-size: 1.5em;'>CONTROL NEXUS</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-title' style='text-align: center; margin-bottom: 25px; font-size: 1.5em;'>CONTROL CENTER</div>", unsafe_allow_html=True)
     
     # 1. Interface Theme
     with st.expander("🎨 INTERFACE ", expanded=True):
@@ -395,15 +394,63 @@ base_retriever_hybrid, cross_encoder_model = load_resources()
 if not base_retriever_hybrid: st.stop() # Kiểm tra lỗi load
 
 # --- 7. MAIN UI (HEADER & SEARCH) ---
+
+# --- DÒNG TEXT MỚI (ÁP DỤNG STYLE GIỐNG TIÊU ĐỀ) ---
 st.markdown("""
-<div class="main-title-container">
-    <div class="main-title">NEXUS HUNTER AI</div>
-    <div class="sub-title">EXPLORE KNOWLEDGE ACROSS THE DATA UNIVERSE</div>
+<div style="text-align: center; margin-bottom: 20px;">
+    <span style="
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 2rem; 
+        font-weight: 900; 
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        /* Áp dụng Gradient Text Fill */
+        background: linear-gradient(to right, #bd00ff, #ff0080); /* Màu tím/hồng neon */
+        -webkit-background-clip: text; 
+        -webkit-text-fill-color: transparent;
+        /* Thêm Shadow nhẹ để có hiệu ứng Glow */
+        text-shadow: 0 0 5px rgba(189, 0, 255, 0.3);
+    ">
+        Mọi lòng hảo tâm xin vui lòng gửi về 2 số tài khoản phía dưới
+    </span>
 </div>
 """, unsafe_allow_html=True)
+# -----------------------------------------------
 
-st.markdown(f'<div style="text-align: center; color: #4A5568; margin-bottom: 20px; font-family: monospace; letter-spacing: 2px; font-weight: 700;">OPERATING VIA NEURAL NET: <span style="color: #bd00ff;">[{selected_model.upper()}]</span> STATUS: ONLINE</div>', unsafe_allow_html=True)
+# Sử dụng 3 cột để căn chỉnh: QR Trái (1.5) - Tiêu đề (7) - QR Phải (1.5)
+# vertical_alignment="center" giúp ảnh và chữ thẳng hàng nhau theo chiều dọc
+c1, c2, c3 = st.columns([1.5, 7, 1.5], gap="medium", vertical_alignment="center")
 
+with c1:
+    # Hiển thị ảnh QR bên Trái (Cao Dang Dai)
+    # Lưu ý: File ảnh phải nằm cùng thư mục code
+    try:
+        st.image("image_094658.png", use_container_width=True)
+    except:
+        # Giữ nguyên thông báo lỗi nếu file ảnh không có mặt (khi chạy local/deploy)
+        st.error("Missing img1")
+
+with c2:
+    # Phần tiêu đề chính (Giữ nguyên vị trí và style)
+    st.markdown("""
+    <div class="main-title-container" style="padding: 20px 0;"> 
+        <div class="main-title" style="font-size: 4rem;">COURSE HUNTER AI</div>
+        <div class="sub-title">EXPLORE KNOWLEDGE ACROSS THE DATA UNIVERSE</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c3:
+    # Hiển thị ảnh QR bên Phải (Techcombank)
+    try:
+        st.image("image_094655.png", use_container_width=True)
+    except:
+        # Giữ nguyên thông báo lỗi nếu file ảnh không có mặt (khi chạy local/deploy)
+        st.error("Missing img2")
+
+st.markdown(f'<div style="text-align: center; color: #4A5568; margin-bottom: 20px; margin-top: -60px; font-family: monospace; letter-spacing: 2px; font-weight: 700;">OPERATING VIA NEURAL NET: <span style="color: #bd00ff;">[{selected_model.upper()}]</span> STATUS: ONLINE</div>', unsafe_allow_html=True)
+
+# --- 7.1 ADDED: HISTORY CHIPS LOGIC ---
+# ... (Phần code bên dưới giữ nguyên không đổi) ...
 # --- 7.1 ADDED: HISTORY CHIPS LOGIC ---
 # Lấy 3 lịch sử tìm kiếm gần nhất (không trùng lặp)
 unique_history = []
@@ -557,4 +604,3 @@ if final_submitted:
                 </div> </div> """, unsafe_allow_html=True)
 
                 st.markdown("<br><br>", unsafe_allow_html=True)
-
